@@ -8,14 +8,12 @@ const PORT = process.env.PORT || 3000;
 const INF_BASE = "https://mozazor.infinityfreeapp.com/iot";
 const API_KEY = "iot123"; // เปลี่ยนได้
 
-// กัน cache + set header
 app.use((req, res, next) => {
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   next();
 });
 
-// ฟังก์ชันยิงไป infinityfree แบบ "ทำตัวเหมือน browser"
 async function forwardToInfinity(url, method = "GET", body = null) {
   const response = await fetch(url, {
     method,
@@ -28,52 +26,24 @@ async function forwardToInfinity(url, method = "GET", body = null) {
         : {})
     },
     body,
-    redirect: "manual" // สำคัญ
+    redirect: "manual" // กันโดน redirect
   });
 
   const text = await response.text();
   return {
     status: response.status,
-    headers: Object.fromEntries(response.headers.entries()),
-    text
+    text,
+    location: response.headers.get("location") || ""
   };
 }
 
 // ===================== ROUTES =====================
 
-// เช็คว่า server ทำงาน
 app.get("/", (req, res) => {
   res.send("Render Proxy OK");
 });
 
-// 0) DEBUG INSERT (เอาไว้ดูว่า InfinityFree ส่ง HTML อะไรกลับมา)
-app.get("/debug_insert", async (req, res) => {
-  try {
-    const url = `${INF_BASE}/insert_data.php`;
-
-    const postBody =
-      `key=${encodeURIComponent(API_KEY)}` +
-      `&air_temp=30.12` +
-      `&air_hum=50.25` +
-      `&water_temp=25.80` +
-      `&light=1` +
-      `&ec=1.20` +
-      `&ph=6.50`;
-
-    const result = await forwardToInfinity(url, "POST", postBody);
-
-    return res.status(200).send(
-      "=== DEBUG_INSERT ===\n" +
-      "STATUS: " + result.status + "\n\n" +
-      "HEADERS:\n" + JSON.stringify(result.headers, null, 2) + "\n\n" +
-      "BODY(แรก 1200 ตัวอักษร):\n" + result.text.substring(0, 1200)
-    );
-  } catch (err) {
-    return res.status(500).send("DEBUG ERROR: " + err.message);
-  }
-});
-
-// 1) GET MODE
+// GET MODE
 app.get("/mode", async (req, res) => {
   try {
     const url = `${INF_BASE}/get_mode.php?key=${API_KEY}`;
@@ -82,14 +52,13 @@ app.get("/mode", async (req, res) => {
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
       return res.status(502).send("0");
     }
-
     return res.status(200).send(text.trim() || "0");
   } catch (err) {
     return res.status(500).send("0");
   }
 });
 
-// 2) GET DEVICE STATUS
+// GET DEVICE STATUS
 app.get("/device", async (req, res) => {
   try {
     const id = parseInt(req.query.id || "1", 10);
@@ -99,14 +68,13 @@ app.get("/device", async (req, res) => {
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
       return res.status(502).send("0");
     }
-
     return res.status(200).send(text.trim() || "0");
   } catch (err) {
     return res.status(500).send("0");
   }
 });
 
-// 3) INSERT DATA (ส่งค่า sensor) -> POST ไป InfinityFree
+// INSERT DATA
 app.get("/insert", async (req, res) => {
   try {
     const air_temp = req.query.air_temp ?? "";
@@ -127,15 +95,43 @@ app.get("/insert", async (req, res) => {
       `&ec=${encodeURIComponent(ec)}` +
       `&ph=${encodeURIComponent(ph)}`;
 
-    const { text } = await forwardToInfinity(url, "POST", postBody);
+    const { status, text, location } = await forwardToInfinity(url, "POST", postBody);
 
+    // ถ้าโดน redirect (302/301)
+    if (status === 301 || status === 302) {
+      return res.status(502).send("ERROR_REDIRECT_TO: " + location);
+    }
+
+    // ถ้าได้ html
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
-      return res.status(502).send("ERROR_HTML");
+      return res.status(502).send("ERROR_HTML:\n" + text.substring(0, 400));
     }
 
     return res.status(200).send(text.trim() || "OK");
   } catch (err) {
     return res.status(500).send("ERROR");
+  }
+});
+
+// ✅ DEBUG ROUTE (ของใหม่)
+app.get("/debug_insert", async (req, res) => {
+  try {
+    const url = `${INF_BASE}/insert_data.php`;
+
+    const postBody =
+      `key=${encodeURIComponent(API_KEY)}` +
+      `&air_temp=25.5&air_hum=60&water_temp=24&light=300&ec=1.2&ph=6.5`;
+
+    const { status, text, location } = await forwardToInfinity(url, "POST", postBody);
+
+    return res.status(200).send(
+      "DEBUG_INSERT\n" +
+      "STATUS=" + status + "\n" +
+      "LOCATION=" + location + "\n\n" +
+      text.substring(0, 600)
+    );
+  } catch (err) {
+    return res.status(500).send("DEBUG_ERROR");
   }
 });
 
