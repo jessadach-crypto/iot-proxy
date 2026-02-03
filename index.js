@@ -101,8 +101,9 @@ app.get("/insert", async (req, res) => {
 
     // กัน html
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
-      return res.status(502).send("ERROR_HTML");
-    }
+        return res.status(502).send("ERROR_HTML:\n" + text.substring(0, 400));
+      }
+      
 
     return res.status(200).send(text.trim() || "OK");
   } catch (err) {
