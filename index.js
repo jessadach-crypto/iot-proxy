@@ -28,7 +28,7 @@ async function forwardToInfinity(url, method = "GET", body = null) {
           : {})
       },
       body,
-      redirect: "follow"
+      redirect: "manual"   // ✅ สำคัญ
     });
   
     const text = await response.text();
