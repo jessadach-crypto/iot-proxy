@@ -16,14 +16,16 @@ app.use((req, res, next) => {
 });
 
 // ฟังก์ชันยิงไป infinityfree แบบ "ทำตัวเหมือน browser"
-async function forwardToInfinity(url) {
+async function forwardToInfinity(url, method = "GET", body = null) {
   const response = await fetch(url, {
-    method: "GET",
+    method,
     headers: {
       "User-Agent": "Mozilla/5.0",
       "Accept": "text/plain",
-      "Connection": "close"
+      "Connection": "close",
+      ...(method === "POST" ? { "Content-Type": "application/x-www-form-urlencoded" } : {})
     },
+    body,
     redirect: "manual"
   });
 
@@ -42,7 +44,7 @@ app.get("/", (req, res) => {
 app.get("/mode", async (req, res) => {
   try {
     const url = `${INF_BASE}/get_mode.php?key=${API_KEY}`;
-    const { status, text } = await forwardToInfinity(url);
+    const { text } = await forwardToInfinity(url);
 
     // ถ้าได้ html แปลว่าโดน redirect / block
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
@@ -60,7 +62,7 @@ app.get("/device", async (req, res) => {
   try {
     const id = parseInt(req.query.id || "1", 10);
     const url = `${INF_BASE}/get_device_status.php?id=${id}&key=${API_KEY}`;
-    const { status, text } = await forwardToInfinity(url);
+    const { text } = await forwardToInfinity(url);
 
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
       return res.status(502).send("0");
@@ -72,7 +74,7 @@ app.get("/device", async (req, res) => {
   }
 });
 
-// 3) INSERT DATA (ส่งค่า sensor)
+// 3) INSERT DATA (ส่งค่า sensor)  ✅ เปลี่ยนเป็น POST ไป InfinityFree
 app.get("/insert", async (req, res) => {
   try {
     // รับค่าจาก ESP32
@@ -83,9 +85,11 @@ app.get("/insert", async (req, res) => {
     const ec = req.query.ec ?? "";
     const ph = req.query.ph ?? "";
 
-    // ส่งต่อไป InfinityFree
-    const url =
-      `${INF_BASE}/insert_data.php?key=${API_KEY}` +
+    // ส่งต่อไป InfinityFree แบบ POST
+    const url = `${INF_BASE}/insert_data.php`;
+
+    const postBody =
+      `key=${encodeURIComponent(API_KEY)}` +
       `&air_temp=${encodeURIComponent(air_temp)}` +
       `&air_hum=${encodeURIComponent(air_hum)}` +
       `&water_temp=${encodeURIComponent(water_temp)}` +
@@ -93,7 +97,7 @@ app.get("/insert", async (req, res) => {
       `&ec=${encodeURIComponent(ec)}` +
       `&ph=${encodeURIComponent(ph)}`;
 
-    const { status, text } = await forwardToInfinity(url);
+    const { text } = await forwardToInfinity(url, "POST", postBody);
 
     // กัน html
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
