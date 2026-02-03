@@ -4,40 +4,109 @@ import fetch from "node-fetch";
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ===================== CONFIG =====================
 const INF_BASE = "https://mozazor.infinityfreeapp.com/iot";
-const API_KEY = "iot123";
+const API_KEY = "iot123"; // เปลี่ยนได้
 
+// กัน cache + set header
 app.use((req, res, next) => {
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
   next();
 });
 
+// ฟังก์ชันยิงไป infinityfree แบบ "ทำตัวเหมือน browser"
 async function forwardToInfinity(url, method = "GET", body = null) {
   const response = await fetch(url, {
     method,
     headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "User-Agent": "Mozilla/5.0",
       "Accept": "*/*",
-      "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
-      "Connection": "keep-alive",
-      "Referer": INF_BASE + "/",
+      "Connection": "close",
       ...(method === "POST"
         ? { "Content-Type": "application/x-www-form-urlencoded" }
         : {})
     },
     body,
-    redirect: "manual"
+    redirect: "manual" // สำคัญ
   });
 
   const text = await response.text();
-  const location = response.headers.get("location") || "";
-  return { status: response.status, text, location };
+  return {
+    status: response.status,
+    headers: Object.fromEntries(response.headers.entries()),
+    text
+  };
 }
 
-app.get("/", (req, res) => res.send("Render Proxy OK"));
+// ===================== ROUTES =====================
 
+// เช็คว่า server ทำงาน
+app.get("/", (req, res) => {
+  res.send("Render Proxy OK");
+});
+
+// 0) DEBUG INSERT (เอาไว้ดูว่า InfinityFree ส่ง HTML อะไรกลับมา)
+app.get("/debug_insert", async (req, res) => {
+  try {
+    const url = `${INF_BASE}/insert_data.php`;
+
+    const postBody =
+      `key=${encodeURIComponent(API_KEY)}` +
+      `&air_temp=30.12` +
+      `&air_hum=50.25` +
+      `&water_temp=25.80` +
+      `&light=1` +
+      `&ec=1.20` +
+      `&ph=6.50`;
+
+    const result = await forwardToInfinity(url, "POST", postBody);
+
+    return res.status(200).send(
+      "=== DEBUG_INSERT ===\n" +
+      "STATUS: " + result.status + "\n\n" +
+      "HEADERS:\n" + JSON.stringify(result.headers, null, 2) + "\n\n" +
+      "BODY(แรก 1200 ตัวอักษร):\n" + result.text.substring(0, 1200)
+    );
+  } catch (err) {
+    return res.status(500).send("DEBUG ERROR: " + err.message);
+  }
+});
+
+// 1) GET MODE
+app.get("/mode", async (req, res) => {
+  try {
+    const url = `${INF_BASE}/get_mode.php?key=${API_KEY}`;
+    const { text } = await forwardToInfinity(url);
+
+    if (text.includes("<html") || text.includes("<!DOCTYPE")) {
+      return res.status(502).send("0");
+    }
+
+    return res.status(200).send(text.trim() || "0");
+  } catch (err) {
+    return res.status(500).send("0");
+  }
+});
+
+// 2) GET DEVICE STATUS
+app.get("/device", async (req, res) => {
+  try {
+    const id = parseInt(req.query.id || "1", 10);
+    const url = `${INF_BASE}/get_device_status.php?id=${id}&key=${API_KEY}`;
+    const { text } = await forwardToInfinity(url);
+
+    if (text.includes("<html") || text.includes("<!DOCTYPE")) {
+      return res.status(502).send("0");
+    }
+
+    return res.status(200).send(text.trim() || "0");
+  } catch (err) {
+    return res.status(500).send("0");
+  }
+});
+
+// 3) INSERT DATA (ส่งค่า sensor) -> POST ไป InfinityFree
 app.get("/insert", async (req, res) => {
   try {
     const air_temp = req.query.air_temp ?? "";
@@ -58,7 +127,7 @@ app.get("/insert", async (req, res) => {
       `&ec=${encodeURIComponent(ec)}` +
       `&ph=${encodeURIComponent(ph)}`;
 
-    const { status, text, location } = await forwardToInfinity(url, "POST", postBody);
+    const { text } = await forwardToInfinity(url, "POST", postBody);
 
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
       return res.status(502).send("ERROR_HTML");
@@ -70,20 +139,7 @@ app.get("/insert", async (req, res) => {
   }
 });
 
-// 🔥 DEBUG ROUTE: ดู HTML ที่ InfinityFree ส่งกลับมา
-app.get("/debug_insert", async (req, res) => {
-  try {
-    const url = `${INF_BASE}/insert_data.php`;
-    const postBody = `key=${encodeURIComponent(API_KEY)}&air_temp=25`;
-
-    const { status, text, location } = await forwardToInfinity(url, "POST", postBody);
-
-    return res.status(200).send(
-      `STATUS=${status}\nLOCATION=${location}\n\n-----HTML START-----\n${text}\n-----HTML END-----`
-    );
-  } catch (err) {
-    return res.status(500).send("DEBUG_ERROR");
-  }
+// ===================== START =====================
+app.listen(PORT, () => {
+  console.log(`Render Proxy running on port ${PORT}`);
 });
-
-app.listen(PORT, () => console.log(`Render Proxy running on port ${PORT}`));
