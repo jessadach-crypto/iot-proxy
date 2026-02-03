@@ -17,21 +17,24 @@ app.use((req, res, next) => {
 
 // ฟังก์ชันยิงไป infinityfree แบบ "ทำตัวเหมือน browser"
 async function forwardToInfinity(url, method = "GET", body = null) {
-  const response = await fetch(url, {
-    method,
-    headers: {
-      "User-Agent": "Mozilla/5.0",
-      "Accept": "text/plain",
-      "Connection": "close",
-      ...(method === "POST" ? { "Content-Type": "application/x-www-form-urlencoded" } : {})
-    },
-    body,
-    redirect: "manual"
-  });
-
-  const text = await response.text();
-  return { status: response.status, text };
-}
+    const response = await fetch(url, {
+      method,
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "*/*",
+        "Connection": "close",
+        ...(method === "POST"
+          ? { "Content-Type": "application/x-www-form-urlencoded" }
+          : {})
+      },
+      body,
+      redirect: "follow"
+    });
+  
+    const text = await response.text();
+    return { status: response.status, text };
+  }
+  
 
 // ===================== ROUTES =====================
 
