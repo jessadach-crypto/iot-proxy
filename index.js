@@ -15,26 +15,32 @@ app.use((req, res, next) => {
   next();
 });
 
+// ===================== FORWARD =====================
 // ฟังก์ชันยิงไป infinityfree แบบ "ทำตัวเหมือน browser"
 async function forwardToInfinity(url, method = "GET", body = null) {
-    const response = await fetch(url, {
-      method,
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "*/*",
-        "Connection": "close",
-        ...(method === "POST"
-          ? { "Content-Type": "application/x-www-form-urlencoded" }
-          : {})
-      },
-      body,
-      redirect: "manual"   // ✅ สำคัญ
-    });
-  
-    const text = await response.text();
-    return { status: response.status, text };
-  }
-  
+  const response = await fetch(url, {
+    method,
+    headers: {
+      // ทำตัวเหมือน browser ให้สุด
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Accept":
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Connection": "keep-alive",
+      "Referer": INF_BASE + "/",
+      ...(method === "POST"
+        ? { "Content-Type": "application/x-www-form-urlencoded" }
+        : {})
+    },
+    body,
+    redirect: "manual" // สำคัญ: จะได้รู้ว่าโดน redirect ไปไหน
+  });
+
+  const text = await response.text();
+  const location = response.headers.get("location") || "";
+  return { status: response.status, text, location };
+}
 
 // ===================== ROUTES =====================
 
@@ -47,11 +53,17 @@ app.get("/", (req, res) => {
 app.get("/mode", async (req, res) => {
   try {
     const url = `${INF_BASE}/get_mode.php?key=${API_KEY}`;
-    const { text } = await forwardToInfinity(url);
+    const { status, text, location } = await forwardToInfinity(url);
 
     // ถ้าได้ html แปลว่าโดน redirect / block
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
-      return res.status(502).send("0");
+      return res.status(502).send(
+        "ERROR_HTML\n" +
+          `STATUS=${status}\n` +
+          `LOCATION=${location}\n` +
+          "SNIP=\n" +
+          text.substring(0, 800)
+      );
     }
 
     return res.status(200).send(text.trim() || "0");
@@ -65,10 +77,16 @@ app.get("/device", async (req, res) => {
   try {
     const id = parseInt(req.query.id || "1", 10);
     const url = `${INF_BASE}/get_device_status.php?id=${id}&key=${API_KEY}`;
-    const { text } = await forwardToInfinity(url);
+    const { status, text, location } = await forwardToInfinity(url);
 
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
-      return res.status(502).send("0");
+      return res.status(502).send(
+        "ERROR_HTML\n" +
+          `STATUS=${status}\n` +
+          `LOCATION=${location}\n` +
+          "SNIP=\n" +
+          text.substring(0, 800)
+      );
     }
 
     return res.status(200).send(text.trim() || "0");
@@ -77,7 +95,7 @@ app.get("/device", async (req, res) => {
   }
 });
 
-// 3) INSERT DATA (ส่งค่า sensor)  ✅ เปลี่ยนเป็น POST ไป InfinityFree
+// 3) INSERT DATA (ส่งค่า sensor)  ✅ POST ไป InfinityFree
 app.get("/insert", async (req, res) => {
   try {
     // รับค่าจาก ESP32
@@ -100,13 +118,22 @@ app.get("/insert", async (req, res) => {
       `&ec=${encodeURIComponent(ec)}` +
       `&ph=${encodeURIComponent(ph)}`;
 
-    const { text } = await forwardToInfinity(url, "POST", postBody);
+    const { status, text, location } = await forwardToInfinity(
+      url,
+      "POST",
+      postBody
+    );
 
     // กัน html
     if (text.includes("<html") || text.includes("<!DOCTYPE")) {
-        return res.status(502).send("ERROR_HTML:\n" + text.substring(0, 400));
-      }
-      
+      return res.status(502).send(
+        "ERROR_HTML\n" +
+          `STATUS=${status}\n` +
+          `LOCATION=${location}\n` +
+          "SNIP=\n" +
+          text.substring(0, 800)
+      );
+    }
 
     return res.status(200).send(text.trim() || "OK");
   } catch (err) {
